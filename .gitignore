@@ -1,0 +1,18 @@
+local.properties
+.gradle/
+build/
+app/build/
+*.iml
+.idea/
+
+# Pinned payloads: fetched from releases, never committed.
+app/src/main/jniLibs/arm64-v8a/*.so
+app/src/main/assets/profiles/*/ksud
+app/src/main/assets/profiles/*/*.ko
+
+# Signing material
+*.jks
+*.keystore
+*.p12
+*.pfx
+signing.properties

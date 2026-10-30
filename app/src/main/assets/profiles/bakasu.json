@@ -1,0 +1,32 @@
+{
+  "id": "bakasu",
+  "displayName": "BakaSU / ReSukiSU",
+  "managerPackage": "com.resukisu.resukisu",
+  "managerActivity": "org.bakasu.bakasu.ui.MainActivity",
+  "lkmAsset": "profiles/bakasu/bakasu-sparrow-targetcfg.ko",
+  "ksudAsset": "profiles/bakasu/ksud",
+  "profileAsset": "profiles/bakasu/sparrow.bin",
+  "nativeLib": "libghostlock.so",
+  "ksudPath": "/data/adb/ksud",
+  "ksudLink": "/data/adb/ksu/bin/ksud",
+  "moduleName": "kernelsu",
+  "insmodArgs": [
+    "{ksud}",
+    "insmod",
+    "--run-stages",
+    "{lkm}",
+    "allow_shell=1"
+  ],
+  "register": "dynamic-manager",
+  "registerCommand": [
+    "{ksud}",
+    "kernel",
+    "dynamic-manager",
+    "set-apk",
+    "{apk}"
+  ],
+  "unameRelease": "5.10.198-android12-perf-gaaf872b28b70-ab117",
+  "uapi": 6,
+  "kmi": "android12-5.10",
+  "builtinManager": true
+}

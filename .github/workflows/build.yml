@@ -1,0 +1,65 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          java-version: 21
+          distribution: temurin
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ""
+
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Fetch pinned payloads
+        env:
+          GHOSTLOCK_PAYLOAD_URL: ${{ vars.GHOSTLOCK_PAYLOAD_URL }}
+          BAKASU_PAYLOAD_URL: ${{ vars.BAKASU_PAYLOAD_URL }}
+        run: ./payloads/fetch.sh
+
+      - name: Build APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SIGNING_KEY }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > release.p12
+            export KEYSTORE_PATH="$PWD/release.p12"
+            export KEYSTORE_PASS="$KEYSTORE_PASSWORD"
+          fi
+          ./gradlew :app:assembleCtsRelease --no-daemon
+
+      - name: Verify signing
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner | sort | tail -1)"
+          "$APKSIGNER" verify --print-certs \
+            app/build/outputs/apk/cts/release/app-cts-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: NestLock
+          path: app/build/outputs/apk/cts/release/app-cts-release.apk
+          if-no-files-found: error
