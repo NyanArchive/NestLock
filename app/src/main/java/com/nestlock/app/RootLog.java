@@ -25,6 +25,39 @@ final class RootLog {
     private RootLog() {
     }
 
+    /** Drops the log when the boot id changed, so a previous boot never shows. */
+    private static void resetIfNewBoot(Context context) {
+        File file = new File(context.getFilesDir(), FILE);
+        if (!file.isFile() || file.length() == 0L) {
+            return;
+        }
+        String current = AppState.bootId();
+        if (current.isEmpty()) {
+            return;
+        }
+        File stamp = new File(context.getFilesDir(), FILE + ".boot");
+        String recorded = "";
+        if (stamp.isFile()) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                    new FileInputStream(stamp), StandardCharsets.UTF_8))) {
+                recorded = reader.readLine();
+                recorded = recorded == null ? "" : recorded.trim();
+            } catch (Exception ignored) {
+            }
+        }
+        if (!current.equals(recorded)) {
+            clear(context);
+            writeStamp(stamp, current);
+        }
+    }
+
+    private static void writeStamp(File stamp, String bootId) {
+        try (FileOutputStream out = new FileOutputStream(stamp, false)) {
+            out.write((bootId + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+        }
+    }
+
     static void append(Context context, String line) {
         if (line == null) {
             return;
@@ -36,6 +69,7 @@ final class RootLog {
         String stamped = new SimpleDateFormat("HH:mm:ss", Locale.US)
                 .format(new Date()) + "  " + text + "\n";
         synchronized (LOCK) {
+            resetIfNewBoot(context);
             File file = new File(context.getFilesDir(), FILE);
             try {
                 if (file.length() > MAX_BYTES) {
@@ -62,12 +96,15 @@ final class RootLog {
             new File(context.getFilesDir(), FILE).delete();
             //noinspection ResultOfMethodCallIgnored
             new File(context.getFilesDir(), OLD).delete();
+            //noinspection ResultOfMethodCallIgnored
+            new File(context.getFilesDir(), FILE + ".boot").delete();
         }
     }
 
     static String tail(Context context) {
         Deque<String> lines = new ArrayDeque<>();
         synchronized (LOCK) {
+            resetIfNewBoot(context);
             readTail(new File(context.getFilesDir(), OLD), lines);
             readTail(new File(context.getFilesDir(), FILE), lines);
         }

@@ -20,11 +20,12 @@ import android.widget.Toast;
 public class StatusActivity extends Activity {
     private static final int REQUEST_NOTIFICATIONS = 1;
     private static final long LOG_POLL_MS = 1000L;
-    private static final int LOG_TAIL_LINES = 120;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView logView;
     private ScrollView logScroll;
+    private boolean logAtBottom = true;
+    private boolean programmaticScroll;
     private TextView statusView;
     private Button rootButton;
     private Switch bootSwitch;
@@ -119,18 +120,13 @@ public class StatusActivity extends Activity {
         logView.setPadding(dp(8), dp(8), dp(8), dp(8));
         logView.setBackgroundColor(0x11000000);
 
-        ScrollView logScroll = new ScrollView(this);
+        logScroll = new ScrollView(this);
         logScroll.addView(logView, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         content.addView(logScroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        this.logScroll = logScroll;
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.addView(content, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        return scroll;
+        bindLogScroll();
+        return content;
     }
 
     private void startRoot() {
@@ -159,18 +155,48 @@ public class StatusActivity extends Activity {
         bootSwitch.setChecked(AppState.isBootEnabled(this));
         syncingSwitch = false;
         String log = RootLog.tail(this);
-        String[] lines = log.split("\n");
-        if (lines.length > LOG_TAIL_LINES) {
-            StringBuilder tail = new StringBuilder();
-            for (int i = lines.length - LOG_TAIL_LINES; i < lines.length; i++) {
-                tail.append(lines[i]).append('\n');
+        String shown = logView.getText().toString();
+        if (!log.equals(shown)) {
+            if (log.startsWith(shown)) {
+                logView.append(log.substring(shown.length()));
+            } else {
+                int keep = logScroll.getScrollY();
+                boolean follow = logAtBottom;
+                logView.setText(log);
+                if (!follow) {
+                    programmaticScroll = true;
+                    logScroll.post(() -> {
+                        logScroll.scrollTo(0, keep);
+                        logScroll.post(() -> programmaticScroll = false);
+                    });
+                }
             }
-            log = tail.toString();
+            if (logAtBottom) {
+                programmaticScroll = true;
+                logScroll.post(() -> {
+                    logScroll.fullScroll(android.view.View.FOCUS_DOWN);
+                    logScroll.post(() -> programmaticScroll = false);
+                });
+            }
         }
-        if (!log.equals(logView.getText().toString())) {
-            logView.setText(log);
-            logScroll.post(() -> logScroll.fullScroll(android.view.View.FOCUS_DOWN));
+    }
+
+    private void bindLogScroll() {
+        logScroll.setOnScrollChangeListener((v, x, y, oldX, oldY) -> {
+            if (programmaticScroll) {
+                return;
+            }
+            logAtBottom = isLogAtBottom();
+        });
+        logAtBottom = true;
+    }
+
+    private boolean isLogAtBottom() {
+        if (logScroll == null || logView.getHeight() <= logScroll.getHeight()) {
+            return true;
         }
+        int max = logView.getHeight() - logScroll.getHeight() + logScroll.getPaddingBottom();
+        return logScroll.getScrollY() >= max - dp(24);
     }
 
     private void requestNotificationsIfNeeded() {
