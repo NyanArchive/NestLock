@@ -163,7 +163,7 @@ final class AppState {
     }
 
     static boolean isBootEnabled(Context context) {
-        return bootPrefs(context).getBoolean(KEY_BOOT_ENABLED, true);
+        return bootPrefs(context).getBoolean(KEY_BOOT_ENABLED, false);
     }
 
     static void setBootEnabled(Context context, boolean enabled) {
