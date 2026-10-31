@@ -15,7 +15,7 @@ fun signingValue(property: String, env: String): String? =
 
 val keystorePath = signingValue("KEYSTORE_FILE", "KEYSTORE_PATH")
 val keystorePass = signingValue("KEYSTORE_PASSWORD", "KEYSTORE_PASS")
-val keyAlias = signingValue("KEY_ALIAS", "KEY_ALIAS")
+val keyAliasValue = signingValue("KEY_ALIAS", "KEY_ALIAS")
 val keyPass = signingValue("KEY_PASSWORD", "KEY_PASSWORD")
 val keystoreFile = keystorePath?.let(::file)?.takeIf { it.isFile && it.length() > 0L }
 
@@ -55,7 +55,7 @@ android {
             create("release") {
                 storeFile = keystoreFile
                 storePassword = keystorePass
-                keyAlias = keyAlias
+                keyAlias = keyAliasValue
                 keyPassword = keyPass
                 storeType = "PKCS12"
                 enableV2Signing = true
