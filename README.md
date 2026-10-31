@@ -1,3 +1,13 @@
+# dead
+don't use this I made DFRoot work
+
+---
+
+
+
+
+
+
 # NestLock
 PICO 4 Ultra root helper app
 
