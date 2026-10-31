@@ -138,8 +138,8 @@ public class StatusActivity extends Activity {
         AppState.setManualRun(this, true);
         AppState.resetFailures(this);
         RootJobService.schedule(this, 3000L);
-        RootLog.append(this, "queued manual root attempt");
-        AppState.setStatus(this, "Queued");
+        RootLog.append(this, "scheduled manual root attempt");
+        AppState.setStatus(this, "Starting");
         refresh();
         if (AppState.bootSucceeded(this)) {
             RootLog.append(this, "root already restored on this boot; a new run is only needed after a reboot");

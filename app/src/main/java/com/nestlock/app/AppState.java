@@ -43,15 +43,29 @@ final class AppState {
     static String getStatus(Context context) {
         SharedPreferences p = prefs(context);
         String status = p.getString(KEY_STATUS, "Not run yet.");
-        /* The status is per-run; a previous boot's "Root ready" would claim
-         * root that no longer exists. */
+        /* A previous boot's status would claim root, or a run, that no longer
+         * applies. "Root ready" and "Running" are both per-boot claims. */
         String saved = p.getString(KEY_SUCCESS_BOOT, "");
         String boot = bootId();
-        if (!boot.isEmpty() && !saved.isEmpty() && !boot.equals(saved)
-                && status.startsWith("Root ready")) {
+        boolean stale = (status.startsWith("Root ready") || status.startsWith("Running"));
+        if (stale && !boot.isEmpty() && !boot.equals(saved)) {
+            return "Not run yet.";
+        }
+        if (status.startsWith("Running") && !isAttemptActive(context)) {
+            /* An attempt that was killed mid-flight leaves no running flag. */
+            return "Not run yet.";
+        }
+        if (status.startsWith("Starting") && !isAttemptActive(context)
+                && !isManualRunPending(context)) {
+            /* Tapped, but the job never started. */
             return "Not run yet.";
         }
         return status;
+    }
+
+    /** True between tapping Root and the scheduled job starting. */
+    static boolean isManualRunPending(Context context) {
+        return prefs(context).getBoolean(KEY_MANUAL, false);
     }
 
     static int getFailures(Context context) {
