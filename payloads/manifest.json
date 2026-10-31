@@ -17,12 +17,12 @@
       "artifacts": [
         {
           "file": "ksud",
-          "sha256": "005dc9b2be2ee857265a60008010f4a40574951dab9dec48b65daeeb8a28926e",
+          "sha256": "2e0f11c8b8901fb7ba0a71535aca528a34c7a1db0d708e6ce6cc3140337a0969",
           "dest": "app/src/main/assets/profiles/bakasu/ksud"
         },
         {
           "file": "bakasu-sparrow-targetcfg.ko",
-          "sha256": "c972b3334a841cfbd97e3160c77ae0702710d59063a09a354e84584f648fe757",
+          "sha256": "e2f2ab262a9741581a7b19dc01be1d2769079fd71587d39c515bb1bd1319c6bd",
           "dest": "app/src/main/assets/profiles/bakasu/bakasu-sparrow-targetcfg.ko"
         }
       ]
