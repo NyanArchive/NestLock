@@ -69,8 +69,6 @@ final class AssetInstaller {
         File ksuLog = new File(base, "ghostlock-ksu.log");
         File nativeLog = new File(base, "native.log");
         File loadScript = new File(base, "load.sh");
-        /* Resolve the manager APK in the app domain: the root loader runs in
-         * u:r:kernel:s0, where `pm path` is denied. */
         String managerApk = "";
         if (!profile.managerPackage.isEmpty()) {
             try {

@@ -4,9 +4,13 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 
-/** Small persistent UI/run state. */
 final class AppState {
     static final int MAX_FAILURES = 3;
 
@@ -15,16 +19,19 @@ final class AppState {
     private static final String KEY_STATUS = "last_status";
     private static final String KEY_FAILURES = "consecutive_failures";
     private static final String KEY_PROFILE = "profile_id";
-    private static final String KEY_MANUAL = "manual_run";
     private static final String KEY_ATTEMPT_BOOT = "attempt_boot_id";
     private static final String KEY_SUCCESS_BOOT = "success_boot_id";
     private static final String KEY_ATTEMPT_AT = "attempt_elapsed_ms";
     private static final String KEY_SUCCESS_AT = "success_elapsed_ms";
     private static final String KEY_BOOT_ENABLED = "boot_enabled";
-    private static final String KEY_ATTEMPT_RUNNING = "attempt_running";
-    private static final String KEY_ATTEMPT_RUNNING_AT = "attempt_running_at";
-    /* A watchdog wakeup inside this window is treated as the same boot even
-     * when boot_id is unreadable. The exploit runs once per boot anyway. */
+
+    private static final String FILE_STATUS = "status.txt";
+    private static final String FILE_RUNNING = "running.txt";
+    private static final String FILE_MANUAL = "manual.txt";
+    private static final String FILE_FAILURES = "failures.txt";
+    private static final String FILE_SUCCESS = "success.txt";
+
+    private static final long RUNNING_TTL_MS = 6 * 60 * 1000L;
     private static final long BOOT_GUARD_WINDOW_MS = 30 * 60 * 1000L;
 
     private AppState() {
@@ -34,84 +41,81 @@ final class AppState {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    /** BootReceiver can run before credential-encrypted storage exists. */
     private static SharedPreferences bootPrefs(Context context) {
         return context.createDeviceProtectedStorageContext()
                 .getSharedPreferences(BOOT_PREFS, Context.MODE_PRIVATE);
     }
 
+    private static File file(Context context, String name) {
+        return new File(context.getFilesDir(), name);
+    }
+
+    private static void writeFile(Context context, String name, String value) {
+        try (FileOutputStream out = new FileOutputStream(file(context, name), false)) {
+            out.write((value + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String readFile(Context context, String name) {
+        File f = file(context, name);
+        if (!f.isFile()) {
+            return "";
+        }
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(f), StandardCharsets.UTF_8))) {
+            String line = reader.readLine();
+            return line == null ? "" : line.trim();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static void deleteFile(Context context, String name) {
+        // noinspection ResultOfMethodCallIgnored
+        file(context, name).delete();
+    }
+
+    private static long readLong(Context context, String name, long fallback) {
+        try {
+            return Long.parseLong(readFile(context, name));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    // ---------------------------------------------------------------- status
+
     static String getStatus(Context context) {
-        SharedPreferences p = prefs(context);
-        String status = p.getString(KEY_STATUS, "Not run yet.");
-        /* A previous boot's status would claim root, or a run, that no longer
-         * applies. "Root ready" and "Running" are both per-boot claims. */
-        String saved = p.getString(KEY_SUCCESS_BOOT, "");
-        String boot = bootId();
-        boolean stale = (status.startsWith("Root ready") || status.startsWith("Running"));
-        if (stale && !boot.isEmpty() && !boot.equals(saved)) {
+        String status = readFile(context, FILE_STATUS);
+        if (status.isEmpty()) {
+            status = prefs(context).getString(KEY_STATUS, "Not run yet.");
+        }
+        if (isStaleStatus(context, status)) {
             return "Not run yet.";
         }
         if (status.startsWith("Running") && !isAttemptActive(context)) {
-            /* An attempt that was killed mid-flight leaves no running flag. */
             return "Not run yet.";
         }
         if (status.startsWith("Starting") && !isAttemptActive(context)
                 && !isManualRunPending(context)) {
-            /* Tapped, but the job never started. */
             return "Not run yet.";
         }
         return status;
     }
 
-    /** True between tapping Root and the scheduled job starting. */
-    static boolean isManualRunPending(Context context) {
-        return prefs(context).getBoolean(KEY_MANUAL, false);
+    private static boolean isManualRunPending(Context context) {
+        return "1".equals(readFile(context, FILE_MANUAL));
     }
 
-    static int getFailures(Context context) {
-        return prefs(context).getInt(KEY_FAILURES, 0);
-    }
-
-    static void recordSuccess(Context context) {
-        prefs(context).edit().putInt(KEY_FAILURES, 0).apply();
-    }
-
-    /**
-     * Counts the attempt before any native code runs. A run that reboots the
-     * device never reaches recordFailure(), so the count must be persisted up
-     * front or the boot-loop guard would never trip.
-     */
-    static int beginAttempt(Context context) {
-        int next = Math.min(MAX_FAILURES, getFailures(context) + 1);
-        prefs(context).edit().putInt(KEY_FAILURES, next).apply();
-        return next;
-    }
-
-    static void recordFailure(Context context) {
-        // The attempt was already counted by beginAttempt(). Keep the count so
-        // a failed run still contributes to the auto-root pause threshold.
-        if (getFailures(context) < 1) {
-            prefs(context).edit().putInt(KEY_FAILURES, 1).apply();
+    private static boolean isStaleStatus(Context context, String status) {
+        if (!status.startsWith("Root ready") && !status.startsWith("Running")) {
+            return false;
         }
+        String boot = bootId();
+        return !boot.isEmpty() && !boot.equals(readFile(context, FILE_SUCCESS));
     }
 
-    static void resetFailures(Context context) {
-        prefs(context).edit().putInt(KEY_FAILURES, 0).apply();
-    }
-
-    static String getProfileId(Context context) {
-        return prefs(context).getString(KEY_PROFILE, "");
-    }
-
-    static void setProfileId(Context context, String id) {
-        prefs(context).edit().putString(KEY_PROFILE, id).apply();
-    }
-
-    static void setManualRun(Context context, boolean manual) {
-        prefs(context).edit().putBoolean(KEY_MANUAL, manual).apply();
-    }
-
-    /** Short status only; full output lives in {@link RootLog}. */
     static void setStatus(Context context, String status) {
         String text = status == null ? "" : status.trim();
         int newline = text.indexOf('\n');
@@ -121,10 +125,73 @@ final class AppState {
         if (text.length() > 120) {
             text = text.substring(0, 120);
         }
-        prefs(context).edit().putString(KEY_STATUS, text).apply();
+        writeFile(context, FILE_STATUS, text);
     }
 
-    /** Current boot identity, readable without root. Returns "" if unavailable. */
+    // ------------------------------------------------------------- manual run
+
+    static void setManualRun(Context context, boolean manual) {
+        if (manual) {
+            writeFile(context, FILE_MANUAL, "1");
+        } else {
+            deleteFile(context, FILE_MANUAL);
+        }
+    }
+
+    static boolean consumeManualRun(Context context) {
+        if (!"1".equals(readFile(context, FILE_MANUAL))) {
+            return false;
+        }
+        deleteFile(context, FILE_MANUAL);
+        return true;
+    }
+
+    // --------------------------------------------------------------- failures
+
+    static int getFailures(Context context) {
+        long stored = readLong(context, FILE_FAILURES, -1L);
+        if (stored >= 0L) {
+            return (int) stored;
+        }
+        return prefs(context).getInt(KEY_FAILURES, 0);
+    }
+
+    private static void setFailures(Context context, int value) {
+        writeFile(context, FILE_FAILURES, Integer.toString(value));
+    }
+
+    static int beginAttempt(Context context) {
+        int next = Math.min(MAX_FAILURES, getFailures(context) + 1);
+        setFailures(context, next);
+        return next;
+    }
+
+    static void recordFailure(Context context) {
+        if (getFailures(context) < 1) {
+            setFailures(context, 1);
+        }
+    }
+
+    static void resetFailures(Context context) {
+        setFailures(context, 0);
+    }
+
+    static void recordSuccess(Context context) {
+        setFailures(context, 0);
+    }
+
+    // ---------------------------------------------------------------- profile
+
+    static String getProfileId(Context context) {
+        return prefs(context).getString(KEY_PROFILE, "");
+    }
+
+    static void setProfileId(Context context, String id) {
+        prefs(context).edit().putString(KEY_PROFILE, id).apply();
+    }
+
+    // ------------------------------------------------------------ boot guards
+
     static String bootId() {
         try (BufferedReader reader = new BufferedReader(
                 new FileReader("/proc/sys/kernel/random/boot_id"))) {
@@ -135,27 +202,17 @@ final class AppState {
         }
     }
 
-    /** Milliseconds since boot, readable without privileged permissions. */
     static long elapsedMs() {
         return android.os.SystemClock.elapsedRealtime();
     }
 
-    /**
-     * True once an automatic attempt has been started for this boot. The
-     * vendor blocks third-party boot broadcasts, so a persisted JobScheduler
-     * watchdog is the trigger; this keeps repeated wakeups from stacking
-     * exploit attempts on the same boot.
-     */
     static boolean beginBootAttempt(Context context) {
-        SharedPreferences p = prefs(context);
         String boot = bootId();
         long now = elapsedMs();
+        SharedPreferences p = prefs(context);
         if (!boot.isEmpty() && boot.equals(p.getString(KEY_ATTEMPT_BOOT, ""))) {
             return false;
         }
-        /* boot_id can be SELinux-unreadable from the app domain. Fall back to
-         * elapsedRealtime: a wakeup within the guard window is the same boot,
-         * while a real reboot resets elapsedRealtime to near zero. */
         if (boot.isEmpty()) {
             long previous = p.getLong(KEY_ATTEMPT_AT, -1L);
             if (previous >= 0L && now >= previous
@@ -170,21 +227,32 @@ final class AppState {
         return true;
     }
 
-    static boolean bootSucceeded(Context context) {
-        SharedPreferences p = prefs(context);
+    static void recordBootSuccess(Context context) {
         String boot = bootId();
-        String saved = p.getString(KEY_SUCCESS_BOOT, "");
+        writeFile(context, FILE_SUCCESS, boot);
+        prefs(context).edit()
+                .putString(KEY_SUCCESS_BOOT, boot)
+                .putLong(KEY_SUCCESS_AT, elapsedMs())
+                .commit();
+    }
+
+    static boolean bootSucceeded(Context context) {
+        String boot = bootId();
+        String saved = readFile(context, FILE_SUCCESS);
+        if (saved.isEmpty()) {
+            saved = prefs(context).getString(KEY_SUCCESS_BOOT, "");
+        }
         if (!boot.isEmpty() && !saved.isEmpty()) {
-            /* A readable boot_id is authoritative. Falling back to elapsed
-             * time here would let a success recorded late in the previous
-             * boot suppress the next boot's attempt. */
             return boot.equals(saved);
         }
+        SharedPreferences p = prefs(context);
         long successAt = p.getLong(KEY_SUCCESS_AT, -1L);
         long now = elapsedMs();
         return successAt >= 0L && now >= successAt
                 && now - successAt < BOOT_GUARD_WINDOW_MS;
     }
+
+    // ------------------------------------------------------------ boot toggle
 
     static boolean isBootEnabled(Context context) {
         return bootPrefs(context).getBoolean(KEY_BOOT_ENABLED, false);
@@ -194,42 +262,26 @@ final class AppState {
         bootPrefs(context).edit().putBoolean(KEY_BOOT_ENABLED, enabled).commit();
     }
 
-    /** Cross-process running flag; expires so a killed process cannot block Root. */
+    // ------------------------------------------------------------- run flag
+
     static void setAttemptRunning(Context context, boolean running) {
-        bootPrefs(context).edit()
-                .putBoolean(KEY_ATTEMPT_RUNNING, running)
-                .putLong(KEY_ATTEMPT_RUNNING_AT, running ? elapsedMs() : 0L)
-                .commit();
+        if (running) {
+            writeFile(context, FILE_RUNNING, Long.toString(elapsedMs()));
+        } else {
+            deleteFile(context, FILE_RUNNING);
+        }
     }
 
     static boolean isAttemptActive(Context context) {
-        SharedPreferences p = bootPrefs(context);
-        if (!p.getBoolean(KEY_ATTEMPT_RUNNING, false)) {
+        long started = readLong(context, FILE_RUNNING, 0L);
+        if (started <= 0L) {
             return false;
         }
-        long started = p.getLong(KEY_ATTEMPT_RUNNING_AT, 0L);
         long now = elapsedMs();
-        if (started <= 0L || now < started || now - started > 6 * 60 * 1000L) {
-            p.edit().putBoolean(KEY_ATTEMPT_RUNNING, false).commit();
+        if (now < started || now - started > RUNNING_TTL_MS) {
+            deleteFile(context, FILE_RUNNING);
             return false;
         }
         return true;
-    }
-
-    static void recordBootSuccess(Context context) {
-        /* commit(), not apply(): the next watchdog wakeup runs in a fresh
-         * process and must see this before it decides to retry. */
-        prefs(context).edit()
-                .putString(KEY_SUCCESS_BOOT, bootId())
-                .putLong(KEY_SUCCESS_AT, elapsedMs())
-                .commit();
-    }
-
-    static boolean consumeManualRun(Context context) {
-        boolean manual = prefs(context).getBoolean(KEY_MANUAL, false);
-        if (manual) {
-            prefs(context).edit().putBoolean(KEY_MANUAL, false).apply();
-        }
-        return manual;
     }
 }

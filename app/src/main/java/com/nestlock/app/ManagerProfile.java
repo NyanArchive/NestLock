@@ -24,10 +24,6 @@ final class ManagerProfile {
     final List<String> insmodArgs;
     final List<String> registerCommand;
     final String register;
-    /**
-     * True when the LKM's built-in APK signature already recognises this
-     * manager, so no userspace dynamic-manager registration is needed.
-     */
     final boolean builtinManager;
     final String unameRelease;
     final int uapi;

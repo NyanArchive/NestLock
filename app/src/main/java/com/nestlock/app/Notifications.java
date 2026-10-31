@@ -56,8 +56,6 @@ final class Notifications {
         if (Build.VERSION.SDK_INT >= 23) {
             flags |= PendingIntent.FLAG_IMMUTABLE;
         }
-        /* Request code must differ per target, otherwise FLAG_UPDATE_CURRENT
-         * makes the most recent intent overwrite an older pending one. */
         int requestCode = 31 * ID + (intent.getComponent() == null
                 ? 0
                 : intent.getComponent().flattenToString().hashCode());

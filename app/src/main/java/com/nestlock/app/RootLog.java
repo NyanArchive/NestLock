@@ -14,7 +14,7 @@ import java.util.Date;
 import java.util.Deque;
 import java.util.Locale;
 
-/** Bounded on-disk root log; the short status stays in SharedPreferences. */
+/** Bounded per-boot root log. */
 final class RootLog {
     private static final String FILE = "root.log";
     private static final String OLD = "root.log.1";

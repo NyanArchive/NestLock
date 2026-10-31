@@ -44,30 +44,15 @@ final class RootRunner {
     private RootRunner() {
     }
 
-    /**
-     * Cheap check for the UI: a World-executable su is what the LKM installs,
-     * while a live shell is too slow to spawn on every poll.
-     */
-    static boolean suPresent() {
-        return new File("/system/bin/su").canExecute()
-                || new File("/data/adb/ksud").canExecute();
-    }
-
     static Result run(Context context, ManagerProfile profile, Listener listener) {
-        String existing = existingRootStatus();
-        if (existing != null) {
+        if (AppState.bootSucceeded(context)) {
             if (listener != null) {
-                for (String line : existing.split("\n")) {
-                    if (!line.trim().isEmpty()) {
-                        listener.onLog(line);
-                    }
-                }
+                listener.onLog("root already restored on this boot; exploit skipped");
             }
             return new Result(true, "Root already present",
-                    "kernelsu is already loaded; exploit skipped. Open the manager to verify.",
-                    existing);
+                    "Root was already restored on this boot. Reboot for a fresh run.",
+                    "root already present\nmodule loaded\nsu=uid=0\nenforce=Enforcing\ndone\n");
         }
-
         Process process = null;
         DataOutputStream stdin = null;
         Thread reader = null;
@@ -75,19 +60,10 @@ final class RootRunner {
         try {
             AssetInstaller.Installed installed = AssetInstaller.install(context, profile);
             statusFile = installed.status;
-            /* Pre-create the status file as the app with 0666. The loader runs
-             * as root but keeps an app-derived SELinux label after the LKM
-             * re-enables enforcing; if it has to create the file itself, its
-             * later writes are denied. An existing app-owned world-writable
-             * file stays writable through that transition. Truncate it so a
-             * stale "done" from a previous run cannot masquerade as success. */
             try (OutputStream statusOut = new FileOutputStream(statusFile, false)) {
                 statusOut.write(new byte[0]);
             }
             android.system.Os.chmod(statusFile.getAbsolutePath(), 0666);
-            /* Truncate the native log too: the success verifier reads its
-             * handoff marker, and a previous run's "KernelSU ready" must not
-             * satisfy this one. */
             try (OutputStream nativeOut = new FileOutputStream(installed.nativeLog, false)) {
                 nativeOut.write(new byte[0]);
             }
@@ -143,11 +119,6 @@ final class RootRunner {
                 String text = AssetInstaller.readText(statusFile);
                 statusDone = hasLine(text, "done");
                 statusFailed = hasFailure(text);
-                /* The root child keeps its app SELinux label, so after the LKM
-                 * re-enables enforcing the loader may be unable to finish the
-                 * status file. The native parent's own log is app-owned and
-                 * records the handoff result, so stop as soon as it reports
-                 * KernelSU ready (or a definitive failure). */
                 String nativeText = AssetInstaller.readText(nativeLog);
                 if (nativeReady(nativeText) || nativeFailed(nativeText)) {
                     break;
@@ -156,10 +127,6 @@ final class RootRunner {
                     break;
                 }
                 if (!process.isAlive()) {
-                    /* The native parent parks after handing off to a detached
-                     * root script. Its exit is not failure; keep watching the
-                     * status file while the root script finishes the policy
-                     * fixup and loader. */
                     if (processExitedAt == 0L) {
                         processExitedAt = System.currentTimeMillis();
                     }
@@ -188,22 +155,10 @@ final class RootRunner {
                     || status.contains("module loaded")
                     || status.contains("module already loaded");
 
-            /* A real su invocation would be the final authority, but the LKM
-             * grants su only to its registered manager and to uid 2000, so this
-             * app cannot run it. Take the native handoff probe instead. */
             boolean suOk = nativeOk || lineStartsWith(status, "su=uid=0");
-            /* Take enforcement from the native log, which reports it explicitly
-             * after the handoff probe. The loader's `enforce=` line holds the
-             * raw sysfs value ("0"/"1"), and the app domain cannot read
-             * /sys/fs/selinux/enforce or exec getenforce, so neither the
-             * status line nor a direct selinuxfs read can answer this reliably. */
             boolean enforcing = nativeOk
                     ? !nativePermissive(nativeText)
                     : enforcementOk(status);
-            /* BakaSU's manager is crowned by the LKM's built-in APK signature,
-             * so there is no userspace registration to verify for that
-             * profile. Only profiles without a built-in signature need the
-             * register line. */
             boolean registered = nativeOk || registrationOk(status)
                     || !profile.hasManager()
                     || profile.builtinManager;
@@ -265,31 +220,6 @@ final class RootRunner {
         }
     }
 
-    /**
-     * Returns a synthetic loader status when root is already live. The LKM is
-     * per-boot, so this only matches a manual run after a successful restore
-     * (or after the host fallback ran). It avoids re-running the exploit and
-     * avoids touching the manager registration, which lives in kernel memory.
-     *
-     * <p>Neither {@code /proc/modules} nor {@code su} works here: SELinux
-     * denies {@code untrusted_app} the module file, and the LKM grants su only
-     * to its registered manager ({@code allow_shell} covers uid 2000). The
-     * world-executable {@code /system/bin/su} the loader installs is the only
-     * signal this domain can read.
-     */
-    private static String existingRootStatus() {
-        if (!suPresent()) {
-            return null;
-        }
-        return "root already present\n"
-                + "module loaded\n"
-                + "su=uid=0\n"
-                + "enforce=Enforcing\n"
-                + "done\n";
-    }
-
-
-
     private static void readOutput(Process process, OutputStream stdin, File log, Listener listener) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 process.getInputStream(), StandardCharsets.UTF_8))) {
@@ -313,11 +243,6 @@ final class RootRunner {
         }
     }
 
-    /**
-     * The loader captures ksud's stdout into the status file, and ksud's
-     * policy work prints libselinux rule dumps. Those are noise in the root
-     * log; keep the module markers and drop the policy records.
-     */
     private static boolean isStatusNoise(String line) {
         String text = line.trim();
         if (text.isEmpty()) {
@@ -364,8 +289,6 @@ final class RootRunner {
         if (line == null) {
             return true;
         }
-        /* "unknown" means the loader could not read selinuxfs; the native log
-         * marker is the authority in that case, so do not fail on it. */
         if (line.contains("unknown")) {
             return true;
         }
@@ -397,10 +320,6 @@ final class RootRunner {
         return text.contains("KernelSU ready");
     }
 
-    /**
-     * The native handoff probe logs "enforce=0 (still permissive)" when the
-     * module loaded but SELinux was not restored. Treat that as not-enforcing.
-     */
     private static boolean nativePermissive(String text) {
         return text.contains("enforce=0 (still permissive)");
     }

@@ -45,7 +45,6 @@ public class StatusActivity extends Activity {
         Notifications.ensureChannel(this);
         RootJobService.disarmIfDisabled(this);
         setContentView(buildUi());
-        refresh();
     }
 
     @Override
@@ -137,9 +136,9 @@ public class StatusActivity extends Activity {
         }
         AppState.setManualRun(this, true);
         AppState.resetFailures(this);
-        RootJobService.schedule(this, 3000L);
-        RootLog.append(this, "scheduled manual root attempt");
         AppState.setStatus(this, "Starting");
+        RootLog.append(this, "scheduled manual root attempt");
+        RootJobService.schedule(this, 3000L);
         refresh();
         if (AppState.bootSucceeded(this)) {
             RootLog.append(this, "root already restored on this boot; a new run is only needed after a reboot");
@@ -149,7 +148,7 @@ public class StatusActivity extends Activity {
     private void refresh() {
         statusView.setText(AppState.getStatus(this));
         boolean running = RootJobService.isRunning(this);
-        boolean loaded = AppState.bootSucceeded(this) || RootRunner.suPresent();
+        boolean loaded = AppState.bootSucceeded(this);
         rootButton.setEnabled(!running && !loaded);
         rootButton.setText(loaded ? "Rooted" : "Root");
         syncingSwitch = true;

@@ -12,12 +12,6 @@ public class BootReceiver extends BroadcastReceiver {
         if (Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)
                 || Intent.ACTION_BOOT_COMPLETED.equals(action)
                 || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
-            /* Schedule from either boot broadcast. The vendor ProcessIntercept
-             * refuses to start a third process for BOOT_COMPLETED, so the
-             * direct-boot receiver often wins the earlier LOCKED_BOOT_COMPLETED
-             * window instead. JobScheduler persists the job, so a duplicate
-             * broadcast is harmless. LOCKED_BOOT_COMPLETED runs before the
-             * credential-encrypted prefs are available, so never require them. */
             if (!AppState.isBootEnabled(context)) {
                 return;
             }

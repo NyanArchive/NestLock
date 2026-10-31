@@ -16,10 +16,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class RootJobService extends JobService {
     private static final int JOB_ID = 0x4E4C;
     private static final int WATCHDOG_JOB_ID = 0x4E4D;
-    /* Fallback only: on this vendor the .cts package name receives
-     * BOOT_COMPLETED normally, so the boot job starts within seconds. The
-     * watchdog covers a missed broadcast; the per-boot guard keeps it to one
-     * automatic attempt. */
     private static final long WATCHDOG_DELAY_MS = 5 * 60 * 1000L;
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
 
@@ -40,13 +36,6 @@ public class RootJobService extends JobService {
         ensureWatchdog(context);
     }
 
-    /**
-     * The headset vendor blocks every third-party boot broadcast
-     * (ProcessIntercept: "forbidden to start a 3rd process by broadcast"), so
-     * a persisted job is the only reliable post-boot trigger. A one-shot job
-     * re-arms itself; the per-boot guard in AppState limits the automatic path
-     * to one attempt and skips a boot that already succeeded.
-     */
     static void ensureWatchdog(Context context) {
         if (!AppState.isBootEnabled(context)) {
             return;
@@ -55,9 +44,6 @@ public class RootJobService extends JobService {
         if (scheduler == null) {
             return;
         }
-        /* One-shot + rearm: periodic jobs have a 15-minute floor on many
-         * builds, while a persisted one-shot can be tested at a short delay
-         * and re-armed from onStartJob. */
         JobInfo.Builder builder = new JobInfo.Builder(
                 WATCHDOG_JOB_ID, new ComponentName(context, RootJobService.class))
                 .setMinimumLatency(WATCHDOG_DELAY_MS)
@@ -70,7 +56,6 @@ public class RootJobService extends JobService {
         return RUNNING.get();
     }
 
-    /** The job runs in :exploit, so the activity cannot read RUNNING. */
     static boolean isRunning(Context context) {
         return RUNNING.get() || AppState.isAttemptActive(context);
     }
@@ -88,11 +73,6 @@ public class RootJobService extends JobService {
         scheduler.cancel(WATCHDOG_JOB_ID);
     }
 
-    /**
-     * A persisted job survives reboots and app updates, so a stale watchdog
-     * armed while the toggle was on would still fire. Drop it at every app
-     * start; the boot receiver re-arms it when the toggle says so.
-     */
     static void disarmIfDisabled(Context context) {
         if (!AppState.isBootEnabled(context)) {
             cancel(context);
@@ -107,8 +87,6 @@ public class RootJobService extends JobService {
                 jobFinished(params, false);
                 return false;
             }
-            /* Re-arm first: a crashed attempt must not cancel the later
-             * boot's automatic recovery. */
             ensureWatchdog(app);
             final ManagerProfile profile = ProfileStore.selected(app);
             if (profile == null
@@ -132,11 +110,6 @@ public class RootJobService extends JobService {
             finish(app, params, "NestLock", "No profile is available.");
             return false;
         }
-        /* Running the exploit while the LKM already owns root drives its
-         * re-enforce path into a kernel panic, and the app domain cannot see
-         * the module or exec su to detect that state. The per-boot success
-         * marker is the only reliable guard, so it must apply to manual runs
-         * too. */
         if (AppState.bootSucceeded(app)) {
             AppState.setStatus(app, "Root already restored on this boot.");
             RUNNING.set(false);
@@ -144,8 +117,6 @@ public class RootJobService extends JobService {
             return false;
         }
         if (!manual) {
-            /* A boot broadcast and the watchdog can both fire. Only the first
-             * automatic wakeup arms the exploit. */
             if (!AppState.beginBootAttempt(app)) {
                 jobFinished(params, false);
                 return false;
@@ -170,9 +141,6 @@ public class RootJobService extends JobService {
             return false;
         }
         publishRunning(app, true);
-        /* Count the attempt before the exploit starts. A reboot inside the
-         * native write path would otherwise leave the failure counter at zero
-         * and re-arm the same boot loop forever. */
         AppState.beginAttempt(app);
 
         AppState.setStatus(app, "Running profile " + profile.id + "...");
@@ -202,6 +170,11 @@ public class RootJobService extends JobService {
                     AppState.recordBootSuccess(app);
                 } else {
                     AppState.recordFailure(app);
+                    /* The module may be loaded even when the post-checks fail;
+                     * record it so the guard blocks a second run this boot. */
+                    if (result.status.contains("module loaded")) {
+                        AppState.recordBootSuccess(app);
+                    }
                 }
                 RootLog.append(app, result.title + ": " + result.message);
                 Notifications.show(app, result.title, result.message,
@@ -247,10 +220,6 @@ public class RootJobService extends JobService {
     @Override
     public boolean onStopJob(JobParameters params) {
         Future<?> running = future;
-        /* cancel() only interrupts; the native process and its detached root
-         * shell keep running. Leave RUNNING set so a second job cannot start a
-         * concurrent exploit against the same kernel. The worker's finally block
-         * clears the guard once the attempt really ends. */
         if (running != null) {
             running.cancel(true);
         }

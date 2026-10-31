@@ -5,24 +5,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Generates the root-side loader. It is invoked by GhostLock as
- * {@code $KSUD late-load --kmi ... --allow-shell}; the arguments are ignored
- * because the profile decides the actual insmod command.
- *
- * <p>The root script is started by the LKM's usermode helper and runs in
- * {@code u:r:kernel:s0}. That domain cannot read {@code /proc/modules} or
- * {@code pm}, and once the module re-enables enforcing it cannot exec any
- * userspace binary. Everything that needs userland therefore runs before the
- * insmod, and module success is taken from the {@code ksud insmod} exit code.
- *
- * <p>Manager activation: BakaSU (the default profile) is recognised by the
- * LKM's built-in BakaSU APK signature, so the kernel crowns
- * {@code com.resukisu.resukisu} on the manager's next launch without any
- * userspace registration. Profiles whose manager uses a different signature
- * still get a best-effort {@code registerCommand} run while the policy is
- * permissive; that command can fail when the kernel signature does not match.
- */
 final class LoaderScript {
     private LoaderScript() {
     }
@@ -66,8 +48,6 @@ final class LoaderScript {
                     .append(" 2>/dev/null || true\n");
         }
 
-        /* The insmod is the module probe: its exit status is authoritative
-         * because /proc/modules becomes unreadable afterwards. */
         s.append("status \"insmod start\"\n");
         s.append(Shell.renderCommand(profile.insmodArgs, vars)).append(" >> \"$STATUS\" 2>&1\n");
         s.append("INSMOD_RC=$?\n");
@@ -77,10 +57,9 @@ final class LoaderScript {
         s.append("fi\n");
         s.append("status \"module loaded\"\n");
         s.append("status \"[+] KernelSU module loaded\"\n");
+        /* The app cannot run su, so record the uid this loader already has. */
+        s.append("status \"su=uid=$(id -u)\"\n");
 
-        /* Best-effort registration for managers without a built-in signature.
-         * It runs while the driver may still be settling and cannot rely on
-         * exec after the insmod re-enables enforcing. */
         if (profile.hasManager()) {
             List<String> registration = profile.effectiveRegisterCommand();
             if (!registration.isEmpty()) {
@@ -98,8 +77,6 @@ final class LoaderScript {
 
         s.append("ENF=\n");
         s.append("read -r ENF < /sys/fs/selinux/enforce 2>/dev/null\n");
-        /* The app parser expects the word form. Write "Enforcing"/"Permissive"
-         * (unknown reads fall back to the native log's enforce marker). */
         s.append("case \"$ENF\" in\n");
         s.append("  1) status \"enforce=Enforcing\" ;;\n");
         s.append("  0) status \"enforce=Permissive\" ;;\n");

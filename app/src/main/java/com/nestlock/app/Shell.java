@@ -12,11 +12,6 @@ final class Shell {
         return "'" + value.replace("'", "'\\''") + "'";
     }
 
-    /**
-     * Renders one argv element. Placeholder values in {@code vars} are already
-     * complete shell expressions (for example {@code "$KSUD"}), so they are
-     * emitted verbatim; everything else is quoted as a literal.
-     */
     static String renderArg(String arg, Map<String, String> vars) {
         String placeholder = vars.get(arg);
         if (placeholder != null) {
