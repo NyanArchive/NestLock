@@ -130,3 +130,15 @@ jobs:
             dist/NestLock.apk
           fail_on_unmatched_files: true
           prerelease: true
+
+      - name: Prune stale assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view pre-release --json assets \
+            --jq '.assets[].name' | while read -r name; do
+            case "$name" in
+              NestLock.apk) ;;
+              *) gh release delete-asset pre-release "$name" -y ;;
+            esac
+          done
