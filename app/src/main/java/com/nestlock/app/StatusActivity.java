@@ -24,9 +24,11 @@ public class StatusActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView logView;
+    private ScrollView logScroll;
     private TextView statusView;
     private Button rootButton;
     private Switch bootSwitch;
+    private boolean syncingSwitch;
 
     private final Runnable logPoll = new Runnable() {
         @Override
@@ -83,6 +85,9 @@ public class StatusActivity extends Activity {
         bootSwitch = new Switch(this);
         bootSwitch.setText("Start on boot");
         bootSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (syncingSwitch) {
+                return;
+            }
             AppState.setBootEnabled(this, checked);
             if (checked) {
                 RootJobService.ensureWatchdog(this);
@@ -113,11 +118,18 @@ public class StatusActivity extends Activity {
         logView.setTextIsSelectable(true);
         logView.setPadding(dp(8), dp(8), dp(8), dp(8));
         logView.setBackgroundColor(0x11000000);
-        content.addView(logView, new LinearLayout.LayoutParams(
+
+        ScrollView logScroll = new ScrollView(this);
+        logScroll.addView(logView, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        content.addView(logScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        this.logScroll = logScroll;
 
         ScrollView scroll = new ScrollView(this);
-        scroll.addView(content);
+        scroll.setFillViewport(true);
+        scroll.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         return scroll;
     }
 
@@ -139,8 +151,13 @@ public class StatusActivity extends Activity {
 
     private void refresh() {
         statusView.setText(AppState.getStatus(this));
-        rootButton.setEnabled(!RootJobService.isRunning(this));
+        boolean running = RootJobService.isRunning(this);
+        boolean loaded = AppState.bootSucceeded(this);
+        rootButton.setEnabled(!running && !loaded);
+        rootButton.setText(loaded ? "Rooted" : "Root");
+        syncingSwitch = true;
         bootSwitch.setChecked(AppState.isBootEnabled(this));
+        syncingSwitch = false;
         String log = RootLog.tail(this);
         String[] lines = log.split("\n");
         if (lines.length > LOG_TAIL_LINES) {
@@ -150,7 +167,10 @@ public class StatusActivity extends Activity {
             }
             log = tail.toString();
         }
-        logView.setText(log);
+        if (!log.equals(logView.getText().toString())) {
+            logView.setText(log);
+            logScroll.post(() -> logScroll.fullScroll(android.view.View.FOCUS_DOWN));
+        }
     }
 
     private void requestNotificationsIfNeeded() {
