@@ -88,6 +88,17 @@ public class RootJobService extends JobService {
         scheduler.cancel(WATCHDOG_JOB_ID);
     }
 
+    /**
+     * A persisted job survives reboots and app updates, so a stale watchdog
+     * armed while the toggle was on would still fire. Drop it at every app
+     * start; the boot receiver re-arms it when the toggle says so.
+     */
+    static void disarmIfDisabled(Context context) {
+        if (!AppState.isBootEnabled(context)) {
+            cancel(context);
+        }
+    }
+
     @Override
     public boolean onStartJob(JobParameters params) {
         final Context app = getApplicationContext();

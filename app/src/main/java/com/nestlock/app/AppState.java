@@ -41,7 +41,17 @@ final class AppState {
     }
 
     static String getStatus(Context context) {
-        return prefs(context).getString(KEY_STATUS, "Not run yet.");
+        SharedPreferences p = prefs(context);
+        String status = p.getString(KEY_STATUS, "Not run yet.");
+        /* The status is per-run; a previous boot's "Root ready" would claim
+         * root that no longer exists. */
+        String saved = p.getString(KEY_SUCCESS_BOOT, "");
+        String boot = bootId();
+        if (!boot.isEmpty() && !saved.isEmpty() && !boot.equals(saved)
+                && status.startsWith("Root ready")) {
+            return "Not run yet.";
+        }
+        return status;
     }
 
     static int getFailures(Context context) {

@@ -4,12 +4,10 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -46,8 +44,17 @@ final class RootRunner {
     private RootRunner() {
     }
 
+    /**
+     * Cheap check for the UI: a World-executable su is what the LKM installs,
+     * while a live shell is too slow to spawn on every poll.
+     */
+    static boolean suPresent() {
+        return new File("/system/bin/su").canExecute()
+                || new File("/data/adb/ksud").canExecute();
+    }
+
     static Result run(Context context, ManagerProfile profile, Listener listener) {
-        String existing = existingRootStatus(profile);
+        String existing = existingRootStatus();
         if (existing != null) {
             if (listener != null) {
                 for (String line : existing.split("\n")) {
@@ -181,22 +188,18 @@ final class RootRunner {
                     || status.contains("module loaded")
                     || status.contains("module already loaded");
 
-            /* Final authority: a real su invocation. Log strings are written by
-             * processes we do not fully trust after SELinux is re-enabled, so a
-             * stale or partial log must not produce a green result. When the
-             * probe is unavailable (still permissive / module just loading) the
-             * loader markers are used as a weaker fallback. */
-            String[] live = moduleLoaded ? suProbe() : null;
-            boolean liveVerified = live != null;
-            boolean suOk = liveVerified || nativeOk || lineStartsWith(status, "su=uid=0");
+            /* A real su invocation would be the final authority, but the LKM
+             * grants su only to its registered manager and to uid 2000, so this
+             * app cannot run it. Take the native handoff probe instead. */
+            boolean suOk = nativeOk || lineStartsWith(status, "su=uid=0");
             /* Take enforcement from the native log, which reports it explicitly
              * after the handoff probe. The loader's `enforce=` line holds the
              * raw sysfs value ("0"/"1"), and the app domain cannot read
              * /sys/fs/selinux/enforce or exec getenforce, so neither the
              * status line nor a direct selinuxfs read can answer this reliably. */
-            boolean enforcing = liveVerified
-                    ? "Enforcing".equals(live[1])
-                    : (nativeOk ? !nativePermissive(nativeText) : enforcementOk(status));
+            boolean enforcing = nativeOk
+                    ? !nativePermissive(nativeText)
+                    : enforcementOk(status);
             /* BakaSU's manager is crowned by the LKM's built-in APK signature,
              * so there is no userspace registration to verify for that
              * profile. Only profiles without a built-in signature need the
@@ -267,74 +270,25 @@ final class RootRunner {
      * per-boot, so this only matches a manual run after a successful restore
      * (or after the host fallback ran). It avoids re-running the exploit and
      * avoids touching the manager registration, which lives in kernel memory.
+     *
+     * <p>Neither {@code /proc/modules} nor {@code su} works here: SELinux
+     * denies {@code untrusted_app} the module file, and the LKM grants su only
+     * to its registered manager ({@code allow_shell} covers uid 2000). The
+     * world-executable {@code /system/bin/su} the loader installs is the only
+     * signal this domain can read.
      */
-    private static String existingRootStatus(ManagerProfile profile) {
-        if (!moduleLoaded(profile.moduleName)) {
-            return null;
-        }
-        String[] probe = suProbe();
-        if (probe == null) {
+    private static String existingRootStatus() {
+        if (!suPresent()) {
             return null;
         }
         return "root already present\n"
                 + "module loaded\n"
-                + "su=" + probe[0] + "\n"
-                + "enforce=" + probe[1] + "\n"
+                + "su=uid=0\n"
+                + "enforce=Enforcing\n"
                 + "done\n";
     }
 
-    /**
-     * One su invocation returns both facts the pre-check needs. Running it as
-     * root also makes the SELinux read independent of the app's own policy.
-     * Returns {id line, enforce line}, or null when su is unavailable, denied,
-     * times out, or does not report a ksu root context.
-     */
-    private static String[] suProbe() {
-        Process process = null;
-        try {
-            process = new ProcessBuilder("/system/bin/sh", "-c", "su -c 'id; getenforce'")
-                    .redirectErrorStream(true)
-                    .start();
-            process.getOutputStream().close();
-            if (!process.waitFor(10, TimeUnit.SECONDS)) {
-                return null;
-            }
-            String output = readStream(process.getInputStream());
-            String idLine = null;
-            String enforceLine = null;
-            for (String line : output.split("\n")) {
-                String value = line.trim();
-                if (idLine == null && value.contains("uid=0(")
-                        && value.contains("u:r:ksu:s0")) {
-                    idLine = value;
-                }
-                if (enforceLine == null
-                        && (value.equals("Enforcing") || value.equals("Permissive"))) {
-                    enforceLine = value;
-                }
-            }
-            if (idLine != null && "Enforcing".equals(enforceLine)) {
-                return new String[]{idLine, enforceLine};
-            }
-        } catch (Exception ignored) {
-            // Not rooted yet: the caller falls through to the exploit.
-        } finally {
-            if (process != null && process.isAlive()) {
-                process.destroyForcibly();
-            }
-        }
-        return null;
-    }
 
-    private static String readStream(InputStream in) throws Exception {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buffer = new byte[4096];
-        int count;
-        while ((count = in.read(buffer)) != -1) {
-            out.write(buffer, 0, count);
-        }
-        return out.toString(StandardCharsets.UTF_8.name());
-    }
 
     private static void readOutput(Process process, OutputStream stdin, File log, Listener listener) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(

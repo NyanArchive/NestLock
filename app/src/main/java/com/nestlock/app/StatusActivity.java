@@ -43,6 +43,7 @@ public class StatusActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Notifications.ensureChannel(this);
+        RootJobService.disarmIfDisabled(this);
         setContentView(buildUi());
         refresh();
     }
@@ -148,7 +149,7 @@ public class StatusActivity extends Activity {
     private void refresh() {
         statusView.setText(AppState.getStatus(this));
         boolean running = RootJobService.isRunning(this);
-        boolean loaded = AppState.bootSucceeded(this);
+        boolean loaded = AppState.bootSucceeded(this) || RootRunner.suPresent();
         rootButton.setEnabled(!running && !loaded);
         rootButton.setText(loaded ? "Rooted" : "Root");
         syncingSwitch = true;
