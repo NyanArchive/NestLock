@@ -6,8 +6,8 @@
       "url_env": "GHOSTLOCK_PAYLOAD_URL",
       "artifacts": [
         {
-          "file": "libghostlock.so",
-          "sha256": "ae272b9360d9ca700d8ea8acfbe1f28bf4d65315e32a91b5276f533cc9c1a56e",
+          "file": "ghostlock",
+          "sha256": "da46e901cba95b09c2819e8875e8d6dd13ad191204866f8a996a850e42f4bd15",
           "dest": "app/src/main/jniLibs/arm64-v8a/libghostlock.so"
         }
       ]
@@ -17,12 +17,12 @@
       "artifacts": [
         {
           "file": "ksud",
-          "sha256": "e69def8c49862e6a4576ae0a318cbebe9d1d187007a70d58a3bad48b682d1cd4",
+          "sha256": "005dc9b2be2ee857265a60008010f4a40574951dab9dec48b65daeeb8a28926e",
           "dest": "app/src/main/assets/profiles/bakasu/ksud"
         },
         {
           "file": "bakasu-sparrow-targetcfg.ko",
-          "sha256": "dc7a3a029e07d1cd8f79329fc4f5f128bd6267b0213230b7b98ed3e41609f81f",
+          "sha256": "c972b3334a841cfbd97e3160c77ae0702710d59063a09a354e84584f648fe757",
           "dest": "app/src/main/assets/profiles/bakasu/bakasu-sparrow-targetcfg.ko"
         }
       ]
