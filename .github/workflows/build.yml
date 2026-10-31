@@ -47,8 +47,8 @@ jobs:
 
       - name: Fetch pinned payloads
         env:
-          GHOSTLOCK_PAYLOAD_URL: ${{ vars.GHOSTLOCK_PAYLOAD_URL || 'https://github.com/aeongdesu/ghostlock-app_sparrow/releases/download/pre-release' }}
-          BAKASU_PAYLOAD_URL: ${{ vars.BAKASU_PAYLOAD_URL || 'https://github.com/aeongdesu/BakaSU_sparrow/releases/latest/download' }}
+          GHOSTLOCK_PAYLOAD_URL: ${{ vars.GHOSTLOCK_PAYLOAD_URL || format('{0}/{1}/ghostlock-app_sparrow/releases/latest/download', github.server_url, github.repository_owner) }}
+          BAKASU_PAYLOAD_URL: ${{ vars.BAKASU_PAYLOAD_URL || format('{0}/{1}/BakaSU_sparrow/releases/latest/download', github.server_url, github.repository_owner) }}
         run: |
           if ./payloads/fetch.sh --check; then
             echo "payloads restored from cache"
